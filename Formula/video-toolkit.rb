@@ -1,7 +1,7 @@
 class VideoToolkit < Formula
   desc "Video processing toolkit with web interface"
   homepage "https://github.com/jiikko/video-toolkit"
-  version "1.5.0"
+  version "20250911204035"
   license "MIT"
 
   # Dummy URL for Homebrew compatibility (actual download uses gh CLI)
