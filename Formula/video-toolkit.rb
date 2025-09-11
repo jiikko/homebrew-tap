@@ -1,12 +1,12 @@
 class VideoToolkit < Formula
   desc "Video processing toolkit with web interface"
   homepage "https://github.com/jiikko/video-toolkit"
-  version "1.0.0"
+  version "1.5.0"
   license "MIT"
 
   # Dummy URL for Homebrew compatibility (actual download uses gh CLI)
   url "https://github.com/jiikko/video-toolkit/archive/refs/tags/v#{version}.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  # sha256 "0000000000000000000000000000000000000000000000000000000000000000"
 
   depends_on "gh"
   depends_on "ffmpeg"
