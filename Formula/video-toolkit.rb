@@ -25,25 +25,16 @@ class VideoToolkit < Formula
       EOS
     end
 
-    # Determine architecture
-    arch = Hardware::CPU.arm? ? "arm64" : "amd64"
-    binary_name = "video-toolkit-darwin-#{arch}"
+    # ARM64 only
+    binary_name = "video-toolkit-darwin-arm64"
 
     # Download the pre-built binary from private repo
     ohai "Downloading #{binary_name} from private repository..."
 
-    # Try to download from the latest release
-    if version.to_s == "latest"
-      system "gh", "release", "download",
-             "--repo", "jiikko/video-toolkit",
-             "--pattern", "#{binary_name}",
-             "--dir", buildpath
-    else
-      system "gh", "release", "download", "v#{version}",
-             "--repo", "jiikko/video-toolkit",
-             "--pattern", "#{binary_name}",
-             "--dir", buildpath
-    end
+    system "gh", "release", "download", "v#{version}",
+           "--repo", "jiikko/video-toolkit",
+           "--pattern", "#{binary_name}",
+           "--dir", buildpath
 
     # Make binary executable and install
     chmod 0755, "#{buildpath}/#{binary_name}"
