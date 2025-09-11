@@ -14,24 +14,39 @@ brew tap jiikko/tap
 
 ## Video Toolkit のインストール
 
+### 特定バージョンをインストール
 ```bash
-# インストール（privateリポジトリから自動でダウンロード）
-brew install video-toolkit
+# インストール（privateリポジトリからDMGを自動でダウンロード）
+brew install --cask video-toolkit
 
-# 実行
-video-toolkit
+# 実行（以下のいずれか）
+open -a "Video Toolkit"
+# または Launchpad/Applications フォルダから起動
+```
+
+### 常に最新版をインストール
+```bash
+# 最新リリースを自動的に取得してインストール
+brew install --cask video-toolkit-latest
+
+# 最新版に更新（reinstallが必要）
+brew reinstall --cask video-toolkit-latest
 ```
 
 ## アップデート
 
 ```bash
-brew update && brew upgrade video-toolkit
+# 特定バージョンの場合
+brew update && brew upgrade --cask video-toolkit
+
+# 最新版の場合（reinstallが必要）
+brew reinstall --cask video-toolkit-latest
 ```
 
 ## アンインストール
 
 ```bash
-brew uninstall video-toolkit
+brew uninstall --cask video-toolkit
 ```
 
 ## 必要な環境
@@ -42,36 +57,36 @@ brew uninstall video-toolkit
 
 ## 仕組み
 
-1. Formula が `gh` CLI を使って private GitHub releases からビルド済みバイナリをダウンロード
+1. Cask が `gh` CLI を使って private GitHub releases からDMGファイルをダウンロード
 2. APIトークンや環境変数の設定は不要
-3. tap リポジトリは public でOK（Formulaのみで、実際のバイナリは含まない）
+3. tap リポジトリは public でOK（Caskのみで、実際のアプリは含まない）
 4. video-toolkit リポジトリは private のまま
+5. DMGからアプリケーションを自動的に Applications フォルダにインストール
 
 ## 開発者向け
 
 ### リリース手順
 
-1. video-toolkit リポジトリでビルド＆リリース:
+1. video-toolkit リポジトリでDMGをビルド＆リリース:
 ```bash
 cd /Users/koji/src/working/video-toolkit
 
-# バージョンを指定してビルド
-./release-homebrew.sh 1.0.1
+# バージョンを指定してDMGをビルド
+./build-dmg.sh 1.0.1
 
-# GitHub Release を作成
+# GitHub Release を作成（DMGファイルをアップロード）
 gh release create v1.0.1 \
-  build/release/video-toolkit-darwin-arm64 \
-  build/release/video-toolkit-darwin-amd64 \
+  build/release/video-toolkit-1.0.1.dmg \
   --repo jiikko/video-toolkit \
   --title "Release v1.0.1" \
   --notes "Video Toolkit v1.0.1"
 ```
 
-2. Formula のバージョンを更新:
+2. Cask のバージョンを更新:
 ```bash
 cd /Users/koji/src/working/homebrew-tap
 
-# Formula/video-toolkit.rb の version を編集
+# Casks/video-toolkit.rb の version を編集
 # version "1.0.0" → version "1.0.1"
 
 git add .
@@ -81,7 +96,7 @@ git push
 
 3. ユーザーは以下でアップデート可能:
 ```bash
-brew update && brew upgrade video-toolkit
+brew update && brew upgrade --cask video-toolkit
 ```
 
 ### トラブルシューティング

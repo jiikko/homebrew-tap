@@ -25,20 +25,38 @@ class VideoToolkit < Formula
       EOS
     end
 
-    # ARM64 only
-    binary_name = "video-toolkit-darwin-arm64"
+    # DMG file name
+    dmg_name = "video-toolkit-#{version}.dmg"
 
-    # Download the pre-built binary from private repo
-    ohai "Downloading #{binary_name} from private repository..."
+    # Download the DMG from private repo
+    ohai "Downloading #{dmg_name} from private repository..."
 
     system "gh", "release", "download", "v#{version}",
            "--repo", "jiikko/video-toolkit",
-           "--pattern", "#{binary_name}",
+           "--pattern", "#{dmg_name}",
            "--dir", buildpath
 
-    # Make binary executable and install
-    chmod 0755, "#{buildpath}/#{binary_name}"
-    bin.install "#{binary_name}" => "video-toolkit"
+    # Mount the DMG
+    ohai "Mounting #{dmg_name}..."
+    mount_point = "/Volumes/VideoToolkit"
+    system "hdiutil", "attach", "#{buildpath}/#{dmg_name}", "-nobrowse", "-quiet", "-mountpoint", mount_point
+
+    begin
+      # Copy the app to Applications (or extract binary if it's not an .app bundle)
+      app_path = "#{mount_point}/Video Toolkit.app"
+      if File.exist?(app_path)
+        # If it's an .app bundle, copy to prefix
+        prefix.install Dir["#{mount_point}/*.app"]
+        # Create a command-line wrapper
+        bin.write_exec_script "#{prefix}/Video Toolkit.app/Contents/MacOS/video-toolkit"
+      else
+        # If it's just a binary in the DMG
+        bin.install "#{mount_point}/video-toolkit"
+      end
+    ensure
+      # Always unmount the DMG
+      system "hdiutil", "detach", mount_point, "-quiet"
+    end
   end
 
   def post_install
