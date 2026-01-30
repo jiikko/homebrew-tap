@@ -23,10 +23,7 @@ ThumbnailThumb API client - Command-line interface for ThumbnailThumb app.
 
 **Usage:**
 ```bash
-tt-client /status              # Check API server status
-tt-client /help                # Show available endpoints
-tt-client /projects            # List projects
-tt-client -p PROJECT_ID GET '/projects/{projectId}/canvases'
+tt-client /help
 ```
 
 ## Development

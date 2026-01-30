@@ -21,9 +21,7 @@ class TtClient < Formula
       tt-client requires ThumbnailThumb app to be running.
 
       Usage:
-        tt-client /status              # Check API server status
-        tt-client /help                # Show available endpoints
-        tt-client /projects            # List projects
+        tt-client /help
 
       For more information, see:
         https://github.com/jiikko/ThumbnailThumb
