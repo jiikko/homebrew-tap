@@ -1,6 +1,6 @@
-# ThumbnailThumb Homebrew Tap
+# Homebrew Tap
 
-Homebrew tap for ThumbnailThumb tools.
+Personal Homebrew tap for various tools.
 
 ## Installation
 
