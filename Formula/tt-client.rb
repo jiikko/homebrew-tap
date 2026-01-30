@@ -1,10 +1,7 @@
 class TtClient < Formula
   desc "ThumbnailThumb API client - Command-line interface for ThumbnailThumb app"
   homepage "https://github.com/jiikko/homebrew-tap"
-  url "https://github.com/jiikko/homebrew-tap/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "db6fed056e5c383fab8a70ffe107b75936f17fe272fea6a9d2b03a7270e920c9"
-  version "0.1.0"
-  license "MIT"
+  head "https://github.com/jiikko/homebrew-tap.git", branch: "master"
 
   def install
     bin.install "bin/tt-client"
