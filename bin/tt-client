@@ -1,0 +1,591 @@
+#!/bin/bash
+# ThumbnailThumb API client
+# Usage: tt-client [-p project_id] [-c canvas_id] [--current] [-q query] [--query key=value] [method] <path> [json-body]
+
+API_INFO_FILE="$HOME/Library/Containers/com.jiikko.thumbnailthumb/Data/Library/Application Support/ThumbnailThumb/api.json"
+PROJECT_ID="${TT_PROJECT_ID:-}"
+CANVAS_ID="${TT_CANVAS_ID:-}"
+QUERY_PARAMS=""
+USE_CURRENT=false
+SHOW_HELP=false
+QUIET=false
+VERBOSE=false
+
+# api.json からポートを読み取る
+get_port_from_file() {
+    if [ -f "$API_INFO_FILE" ]; then
+        local port
+        port=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$API_INFO_FILE" | grep -o '[0-9]*')
+        if [ -n "$port" ]; then
+            # PID で生存確認
+            local pid
+            pid=$(grep -o '"pid"[[:space:]]*:[[:space:]]*[0-9]*' "$API_INFO_FILE" | grep -o '[0-9]*')
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                echo "$port"
+                return 0
+            else
+                echo "Warning: ThumbnailThumb process (PID: $pid) is not running. Stale api.json?" >&2
+            fi
+        fi
+    fi
+    return 1
+}
+
+# ポートを決定
+if [ -n "$TT_API_PORT" ]; then
+    PORT="$TT_API_PORT"
+elif port=$(get_port_from_file); then
+    PORT="$port"
+else
+    echo "Error: ThumbnailThumb API server is not running." >&2
+    echo "       Start ThumbnailThumb app or set TT_API_PORT environment variable." >&2
+    exit 1
+fi
+
+BASE_URL="http://localhost:${PORT}/api/v1"
+
+append_query_param() {
+    local param="$1"
+    if [ -z "$param" ]; then
+        return
+    fi
+    if [ -n "$QUERY_PARAMS" ]; then
+        QUERY_PARAMS="${QUERY_PARAMS}&${param}"
+    else
+        QUERY_PARAMS="$param"
+    fi
+}
+
+parse_query_args() {
+    PARSED_ARGS=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --query)
+                if [ -z "$2" ]; then
+                    echo "Error: --query requires key=value" >&2
+                    exit 1
+                fi
+                append_query_param "$2"
+                shift 2
+                ;;
+            --query=*)
+                append_query_param "${1#--query=}"
+                shift
+                ;;
+            -q)
+                if [ -z "$2" ]; then
+                    echo "Error: -q requires key=value or key1=val1&key2=val2" >&2
+                    exit 1
+                fi
+                append_query_param "$2"
+                shift 2
+                ;;
+            *)
+                PARSED_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+# Parse options
+while getopts "p:c:q:-:" opt; do
+    case $opt in
+        p) PROJECT_ID="$OPTARG" ;;
+        c) CANVAS_ID="$OPTARG" ;;
+        q) QUERY_PARAMS="$OPTARG" ;;
+        -)
+            case "${OPTARG}" in
+                current) USE_CURRENT=true ;;
+                help) SHOW_HELP=true ;;
+                quiet) QUIET=true ;;
+                verbose) VERBOSE=true ;;
+                *) ;;
+            esac
+            ;;
+        *) ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# --help が指定された場合
+if [ "$SHOW_HELP" = true ]; then
+    set -- "-h"  # -h を引数に設定して下のcase文で処理
+else
+    parse_query_args "$@"
+    set -- "${PARSED_ARGS[@]}"
+fi
+
+# /status から現在のプロジェクト/キャンバスIDを取得
+fetch_current_ids() {
+    local status_response
+    status_response=$(curl -sS "$BASE_URL/status" 2>/dev/null)
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to fetch /status" >&2
+        return 1
+    fi
+
+    if command -v jq &> /dev/null; then
+        local success
+        success=$(echo "$status_response" | jq -r '.success // empty')
+        if [ "$success" = "true" ]; then
+            PROJECT_ID=$(echo "$status_response" | jq -r '.data.currentProjectId // empty')
+            CANVAS_ID=$(echo "$status_response" | jq -r '.data.currentCanvasId // empty')
+            return 0
+        fi
+    else
+        # jq がない場合は grep でパース
+        PROJECT_ID=$(echo "$status_response" | grep -o '"currentProjectId"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/')
+        CANVAS_ID=$(echo "$status_response" | grep -o '"currentCanvasId"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/')
+        if [ -n "$PROJECT_ID" ]; then
+            return 0
+        fi
+    fi
+
+    echo "Error: No current project/canvas available" >&2
+    return 1
+}
+
+# --current が指定された場合、現在のIDを取得
+if [ "$USE_CURRENT" = true ]; then
+    if ! fetch_current_ids; then
+        exit 1
+    fi
+fi
+
+# Replace {projectId}, {canvasId} in path and append query params
+build_path() {
+    local path="$1"
+    if [ -n "$PROJECT_ID" ]; then
+        path="${path//\{projectId\}/$PROJECT_ID}"
+        path="${path//\{project_id\}/$PROJECT_ID}"
+    fi
+    if [ -n "$CANVAS_ID" ]; then
+        path="${path//\{canvasId\}/$CANVAS_ID}"
+        path="${path//\{canvas_id\}/$CANVAS_ID}"
+    fi
+    # Append query params if provided
+    if [ -n "$QUERY_PARAMS" ]; then
+        if [[ "$path" == *"?"* ]]; then
+            path="${path}&${QUERY_PARAMS}"
+        else
+            path="${path}?${QUERY_PARAMS}"
+        fi
+    fi
+    echo "$path"
+}
+
+format_json() {
+    if command -v jq &> /dev/null; then
+        jq .
+    else
+        cat
+    fi
+}
+
+do_curl() {
+    # --verbose: リクエスト情報を表示
+    if [ "$VERBOSE" = true ]; then
+        echo ">>> Request:" >&2
+        # curl引数からメソッドとURLを抽出して表示
+        local method="GET"
+        local url=""
+        local body=""
+        local skip_next=false
+        for arg in "$@"; do
+            if [ "$skip_next" = true ]; then
+                skip_next=false
+                continue
+            fi
+            case "$arg" in
+                -X) skip_next=true; method="$2" ;;
+                -d) skip_next=true ;;
+                -H) skip_next=true ;;
+                http*) url="$arg" ;;
+            esac
+        done
+        # もう一度ループしてメソッドとボディを取得
+        local prev=""
+        for arg in "$@"; do
+            if [ "$prev" = "-X" ]; then method="$arg"; fi
+            if [ "$prev" = "-d" ]; then body="$arg"; fi
+            prev="$arg"
+        done
+        echo "    $method $url" >&2
+        if [ -n "$body" ]; then
+            echo "    Body: $body" >&2
+        fi
+        echo "" >&2
+    fi
+
+    local result
+    result=$(curl -sS "$@" 2>&1)
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "Error: $result" >&2
+        exit $exit_code
+    fi
+
+    # --verbose: レスポンス情報を表示
+    if [ "$VERBOSE" = true ]; then
+        echo "<<< Response:" >&2
+    fi
+
+    # --quiet: 成功時は出力しない（エラー時のみ出力）
+    if [ "$QUIET" = true ]; then
+        # エラーチェック（success: false の場合のみ出力）
+        if echo "$result" | grep -q '"success"[[:space:]]*:[[:space:]]*false'; then
+            echo "$result" | format_json
+            exit 1
+        fi
+    else
+        echo "$result" | format_json
+    fi
+}
+
+# JSON body を読み込む (@file または @- をサポート)
+read_json_body() {
+    local body="$1"
+    if [ -z "$body" ]; then
+        echo ""
+        return
+    fi
+
+    if [[ "$body" == @-* ]]; then
+        # stdin から読み込み
+        cat
+    elif [[ "$body" == @* ]]; then
+        # ファイルから読み込み
+        local file="${body:1}"
+        if [ ! -f "$file" ]; then
+            echo "Error: File not found: $file" >&2
+            exit 1
+        fi
+        cat "$file"
+    else
+        # 直接指定された JSON
+        echo "$body"
+    fi
+}
+
+# ショートカットコマンド用: 必要に応じて現在のIDを自動取得
+ensure_current_ids() {
+    if [ -z "$PROJECT_ID" ] || [ -z "$CANVAS_ID" ]; then
+        if ! fetch_current_ids; then
+            exit 1
+        fi
+    fi
+}
+
+case "$1" in
+    # === Shortcut Commands ===
+    elements)
+        # GET elements list
+        ensure_current_ids
+        TYPE_FILTER=""
+        if [ -n "$2" ]; then
+            TYPE_FILTER="?type=$2"
+        fi
+        do_curl "$BASE_URL/projects/$PROJECT_ID/canvases/$CANVAS_ID/elements$TYPE_FILTER"
+        ;;
+    canvas)
+        # GET current canvas info
+        ensure_current_ids
+        do_curl "$BASE_URL/projects/$PROJECT_ID/canvases/$CANVAS_ID"
+        ;;
+    text)
+        # Add text element
+        ensure_current_ids
+        TEXT="${2:-テキスト}"
+        X="${3:-640}"
+        Y="${4:-360}"
+        do_curl -X POST "$BASE_URL/projects/$PROJECT_ID/canvases/$CANVAS_ID/elements" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"text\",\"text\":\"$TEXT\",\"x\":$X,\"y\":$Y}"
+        ;;
+    image)
+        # Add image element
+        ensure_current_ids
+        if [ -z "$2" ]; then
+            echo "Usage: tt-client image <path> [x] [y]" >&2
+            exit 1
+        fi
+        IMAGE_PATH="$2"
+        X="${3:-640}"
+        Y="${4:-360}"
+        do_curl -X POST "$BASE_URL/projects/$PROJECT_ID/canvases/$CANVAS_ID/elements" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"image\",\"imagePath\":\"$IMAGE_PATH\",\"x\":$X,\"y\":$Y}"
+        ;;
+    shape)
+        # Add shape element
+        ensure_current_ids
+        SHAPE_TYPE="${2:-rectangle}"
+        X="${3:-640}"
+        Y="${4:-360}"
+        do_curl -X POST "$BASE_URL/projects/$PROJECT_ID/canvases/$CANVAS_ID/elements" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"shape\",\"shapeType\":\"$SHAPE_TYPE\",\"x\":$X,\"y\":$Y}"
+        ;;
+    undo)
+        # Undo
+        do_curl -X POST "$BASE_URL/undo"
+        ;;
+    redo)
+        # Redo
+        do_curl -X POST "$BASE_URL/redo"
+        ;;
+    clear)
+        # Clear canvas
+        ensure_current_ids
+        do_curl -X POST "$BASE_URL/projects/$PROJECT_ID/canvases/$CANVAS_ID/clear"
+        ;;
+
+    # === HTTP Methods ===
+    GET|get)
+        path=$(build_path "$2")
+        do_curl "$BASE_URL$path"
+        ;;
+    POST|post)
+        path=$(build_path "$2")
+        if [ -n "$3" ]; then
+            json_body=$(read_json_body "$3")
+            do_curl -X POST "$BASE_URL$path" -H "Content-Type: application/json" -d "$json_body"
+        else
+            do_curl -X POST "$BASE_URL$path"
+        fi
+        ;;
+    PATCH|patch)
+        path=$(build_path "$2")
+        json_body=$(read_json_body "$3")
+        do_curl -X PATCH "$BASE_URL$path" -H "Content-Type: application/json" -d "$json_body"
+        ;;
+    DELETE|delete)
+        path=$(build_path "$2")
+        do_curl -X DELETE "$BASE_URL$path"
+        ;;
+    preview)
+        # Preview current canvas and save/open
+        # Usage: tt-client [-p PROJECT_ID] [-c CANVAS_ID] [--current] preview [CANVAS_ID] [-o OUTPUT_PATH] [--no-open]
+        PREVIEW_CANVAS_ID=""
+        OPEN_PREVIEW=true
+        OUTPUT_PATH=""
+
+        # Parse preview subcommand arguments
+        shift  # Remove 'preview' from arguments
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -o|--output)
+                    OUTPUT_PATH="$2"
+                    OPEN_PREVIEW=false  # Don't open when saving to specific path
+                    shift 2
+                    ;;
+                --no-open)
+                    OPEN_PREVIEW=false
+                    shift
+                    ;;
+                *)
+                    # Assume it's canvas ID if not an option
+                    if [ -z "$PREVIEW_CANVAS_ID" ]; then
+                        PREVIEW_CANVAS_ID="$1"
+                    fi
+                    shift
+                    ;;
+            esac
+        done
+
+        # キャンバスIDが引数で指定されていない場合は -c オプションまたは --current の値を使用
+        if [ -z "$PREVIEW_CANVAS_ID" ]; then
+            PREVIEW_CANVAS_ID="$CANVAS_ID"
+        fi
+
+        if [ -z "$PROJECT_ID" ]; then
+            echo "Error: Project ID required. Use -p option, --current, or set TT_PROJECT_ID" >&2
+            exit 1
+        fi
+        if [ -z "$PREVIEW_CANVAS_ID" ]; then
+            echo "Error: Canvas ID required. Use -c option, --current, or provide as argument" >&2
+            echo "Usage: tt-client [-p PROJECT_ID] [-c CANVAS_ID] preview [CANVAS_ID] [-o OUTPUT_PATH] [--no-open]" >&2
+            echo "       tt-client --current preview [-o OUTPUT_PATH]" >&2
+            exit 1
+        fi
+
+        # Determine output file path
+        if [ -n "$OUTPUT_PATH" ]; then
+            # Create parent directory if needed
+            OUTPUT_DIR=$(dirname "$OUTPUT_PATH")
+            if [ ! -d "$OUTPUT_DIR" ]; then
+                mkdir -p "$OUTPUT_DIR"
+            fi
+            SAVE_FILE="$OUTPUT_PATH"
+        else
+            # Create temp file (macOS mktemp needs suffix added separately)
+            SAVE_FILE=$(mktemp /tmp/tt-preview-XXXXXX).png
+        fi
+
+        # Fetch preview image
+        PREVIEW_URL="$BASE_URL/projects/$PROJECT_ID/canvases/$PREVIEW_CANVAS_ID/preview"
+        HTTP_CODE=$(curl -sS -w "%{http_code}" -o "$SAVE_FILE" "$PREVIEW_URL")
+
+        if [ "$HTTP_CODE" != "200" ]; then
+            ERROR_MSG=$(cat "$SAVE_FILE" 2>/dev/null)
+            if [ -z "$OUTPUT_PATH" ]; then
+                rm -f "$SAVE_FILE"
+            fi
+            echo "Error: Failed to fetch preview (HTTP $HTTP_CODE)" >&2
+            echo "$ERROR_MSG" | format_json >&2
+            exit 1
+        fi
+
+        echo "Preview saved to: $SAVE_FILE"
+
+        if [ "$OPEN_PREVIEW" = true ]; then
+            open "$SAVE_FILE"
+            echo "Opened in default viewer"
+        fi
+        ;;
+    export)
+        # Export current canvas at full resolution
+        # Usage: tt-client [-p PROJECT_ID] [-c CANVAS_ID] [--current] export -o OUTPUT_PATH [--format png|jpeg] [--quality 0.9]
+        OUTPUT_PATH=""
+        EXPORT_FORMAT="png"
+        EXPORT_QUALITY="0.9"
+        OPEN_EXPORT=false
+
+        # Parse export subcommand arguments
+        shift  # Remove 'export' from arguments
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -o|--output)
+                    OUTPUT_PATH="$2"
+                    shift 2
+                    ;;
+                --format)
+                    EXPORT_FORMAT="$2"
+                    shift 2
+                    ;;
+                --quality)
+                    EXPORT_QUALITY="$2"
+                    shift 2
+                    ;;
+                --open)
+                    OPEN_EXPORT=true
+                    shift
+                    ;;
+                *)
+                    shift
+                    ;;
+            esac
+        done
+
+        ensure_current_ids
+
+        if [ -z "$OUTPUT_PATH" ]; then
+            echo "Error: Output path required. Use -o option" >&2
+            echo "Usage: tt-client [--current] export -o OUTPUT_PATH [--format png|jpeg] [--quality 0.9]" >&2
+            exit 1
+        fi
+
+        # Create parent directory if needed
+        OUTPUT_DIR=$(dirname "$OUTPUT_PATH")
+        if [ ! -d "$OUTPUT_DIR" ]; then
+            mkdir -p "$OUTPUT_DIR"
+        fi
+
+        # Export full resolution image
+        EXPORT_URL="$BASE_URL/projects/$PROJECT_ID/canvases/$CANVAS_ID/export"
+        HTTP_CODE=$(curl -sS -w "%{http_code}" -X POST "$EXPORT_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"format\":\"$EXPORT_FORMAT\",\"quality\":$EXPORT_QUALITY}" \
+            -o "$OUTPUT_PATH")
+
+        if [ "$HTTP_CODE" != "200" ]; then
+            ERROR_MSG=$(cat "$OUTPUT_PATH" 2>/dev/null)
+            rm -f "$OUTPUT_PATH"
+            echo "Error: Failed to export (HTTP $HTTP_CODE)" >&2
+            echo "$ERROR_MSG" | format_json >&2
+            exit 1
+        fi
+
+        echo "Exported to: $OUTPUT_PATH"
+
+        if [ "$OPEN_EXPORT" = true ]; then
+            open "$OUTPUT_PATH"
+            echo "Opened in default viewer"
+        fi
+        ;;
+    env)
+        # Output environment variables for current project/canvas
+        if [ "$USE_CURRENT" != true ]; then
+            if ! fetch_current_ids; then
+                exit 1
+            fi
+        fi
+        echo "export TT_PROJECT_ID=\"$PROJECT_ID\""
+        echo "export TT_CANVAS_ID=\"$CANVAS_ID\""
+        echo "# Usage: eval \$(tt-client env)"
+        ;;
+    -h|--help)
+        echo "Usage: tt-client [command] [args...]"
+        echo "       tt-client [method] <path> [json-body]"
+        echo ""
+        echo "Shortcut Commands (auto-fetch current project/canvas):"
+        echo "  elements [type]      List elements (type: text|image|shape)"
+        echo "  canvas               Show current canvas info"
+        echo "  text <text> [x] [y]  Add text element (default: center)"
+        echo "  image <path> [x] [y] Add image element"
+        echo "  shape <type> [x] [y] Add shape (rectangle|ellipse|triangle|...)"
+        echo "  undo                 Undo last action"
+        echo "  redo                 Redo last action"
+        echo "  clear                Clear all elements from canvas"
+        echo "  preview [-o PATH]    Preview canvas image (save to PATH or temp)"
+        echo "  export -o PATH       Export full resolution image (--format png|jpeg)"
+        echo ""
+        echo "Raw API Access:"
+        echo "  <path>               GET request (method optional)"
+        echo "  GET <path>           GET request"
+        echo "  POST <path> [json]   POST request"
+        echo "  PATCH <path> <json>  PATCH request"
+        echo "  DELETE <path>        DELETE request"
+        echo ""
+        echo "Options:"
+        echo "  -p ID      Set project ID"
+        echo "  -c ID      Set canvas ID"
+        echo "  --current  Force fetch current IDs (shortcuts do this automatically)"
+        echo "  -q QUERY   Add query parameters (key=value or key1=val1&key2=val2)"
+        echo "  --query KV Add a single query pair (repeatable, e.g. --query a=1 --query b=2)"
+        echo "  --quiet    Suppress output on success (only show errors)"
+        echo "  --verbose  Show request/response details"
+        echo ""
+        echo "Examples:"
+        echo "  # Shortcuts (recommended)"
+        echo "  tt-client elements                 # List all elements"
+        echo "  tt-client elements text            # List text elements only"
+        echo "  tt-client text \"Hello World\"       # Add text at center"
+        echo "  tt-client text \"Hello\" 100 200    # Add text at (100, 200)"
+        echo "  tt-client image /path/to/img.png  # Add image"
+        echo "  tt-client shape ellipse           # Add ellipse"
+        echo "  tt-client undo                    # Undo"
+        echo "  tt-client preview                 # Preview canvas (temp file + open)"
+        echo "  tt-client preview -o ./out.png   # Save preview to specific path"
+        echo "  tt-client export -o ./out.png    # Export full resolution"
+        echo "  tt-client export -o ./out.jpg --format jpeg  # Export as JPEG"
+        echo ""
+        echo "  # Raw API access (path directly or with method)"
+        echo "  tt-client /status                           # GET /status"
+        echo "  tt-client /help                             # GET /help"
+        echo "  tt-client GET /projects                     # GET /projects"
+        echo "  tt-client --current GET '/projects/{projectId}/canvases/{canvasId}'"
+        echo "  tt-client GET /help --query topic=image"
+        echo ""
+        echo "Note: In zsh, quote paths with {braces}:"
+        echo "  tt-client --current PATCH '/projects/{projectId}/...' '{...}'"
+        echo ""
+        echo "Current: $BASE_URL"
+        ;;
+    *)
+        # Default to GET
+        path=$(build_path "$1")
+        do_curl "$BASE_URL$path"
+        ;;
+esac
