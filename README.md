@@ -19,7 +19,7 @@ brew install jiikko/tap/tt-client
 ThumbnailThumb API client - Command-line interface for ThumbnailThumb app.
 
 **Requirements:**
-- ThumbnailThumb app must be running (https://github.com/jiikko/ThumbnailThumb)
+- ThumbnailThumb app must be running ([ThumbnailThumb](https://jiikko.com/thumbnail-thumb/))
 
 **Usage:**
 ```bash
@@ -36,4 +36,4 @@ brew install --HEAD jiikko/tap/tt-client
 
 ## License
 
-See [ThumbnailThumb repository](https://github.com/jiikko/ThumbnailThumb) for license information.
+See [ThumbnailThumb](https://jiikko.com/thumbnail-thumb/) for license information.
