@@ -2,7 +2,10 @@
 # ThumbnailThumb API client
 # Usage: tt-client [-p project_id] [-c canvas_id] [--current] [-q query] [--query key=value] [method] <path> [json-body]
 
-API_INFO_FILE="$HOME/Library/Containers/com.jiikko.thumbnailthumb/Data/Library/Application Support/ThumbnailThumb/api.json"
+# API info file paths (non-sandbox first, then sandbox)
+API_INFO_FILE_NONSANDBOX="$HOME/Library/Application Support/ThumbnailThumb/api.json"
+API_INFO_FILE_SANDBOX="$HOME/Library/Containers/com.jiikko.thumbnailthumb/Data/Library/Application Support/ThumbnailThumb/api.json"
+API_INFO_FILE=""  # Will be set by find_api_info_file
 PROJECT_ID="${TT_PROJECT_ID:-}"
 CANVAS_ID="${TT_CANVAS_ID:-}"
 QUERY_PARAMS=""
@@ -11,21 +14,39 @@ SHOW_HELP=false
 QUIET=false
 VERBOSE=false
 
+# Find api.json in either sandbox or non-sandbox path
+find_api_info_file() {
+    # Try non-sandbox path first (Debug/Release build)
+    if [ -f "$API_INFO_FILE_NONSANDBOX" ]; then
+        API_INFO_FILE="$API_INFO_FILE_NONSANDBOX"
+        return 0
+    fi
+    # Then try sandbox path (MAS/TestFlight build)
+    if [ -f "$API_INFO_FILE_SANDBOX" ]; then
+        API_INFO_FILE="$API_INFO_FILE_SANDBOX"
+        return 0
+    fi
+    return 1
+}
+
 # api.json からポートを読み取る
 get_port_from_file() {
-    if [ -f "$API_INFO_FILE" ]; then
-        local port
-        port=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$API_INFO_FILE" | grep -o '[0-9]*')
-        if [ -n "$port" ]; then
-            # PID で生存確認
-            local pid
-            pid=$(grep -o '"pid"[[:space:]]*:[[:space:]]*[0-9]*' "$API_INFO_FILE" | grep -o '[0-9]*')
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                echo "$port"
-                return 0
-            else
-                echo "Warning: ThumbnailThumb process (PID: $pid) is not running. Stale api.json?" >&2
-            fi
+    # First find the api.json file
+    if ! find_api_info_file; then
+        return 1
+    fi
+
+    local port
+    port=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$API_INFO_FILE" | grep -o '[0-9]*')
+    if [ -n "$port" ]; then
+        # PID で生存確認
+        local pid
+        pid=$(grep -o '"pid"[[:space:]]*:[[:space:]]*[0-9]*' "$API_INFO_FILE" | grep -o '[0-9]*')
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "$port"
+            return 0
+        else
+            echo "Warning: ThumbnailThumb process (PID: $pid) is not running. Stale api.json?" >&2
         fi
     fi
     return 1
