@@ -14,17 +14,36 @@ SHOW_HELP=false
 QUIET=false
 VERBOSE=false
 
+# Check for --verbose early (before port detection) to enable verbose logging
+for arg in "$@"; do
+    if [ "$arg" = "--verbose" ]; then
+        VERBOSE=true
+        break
+    fi
+done
+
 # Find api.json in either sandbox or non-sandbox path
 find_api_info_file() {
     # Try non-sandbox path first (Debug/Release build)
     if [ -f "$API_INFO_FILE_NONSANDBOX" ]; then
         API_INFO_FILE="$API_INFO_FILE_NONSANDBOX"
+        if [ "$VERBOSE" = true ]; then
+            echo "[verbose] Found api.json at: $API_INFO_FILE (non-sandbox)" >&2
+        fi
         return 0
     fi
     # Then try sandbox path (MAS/TestFlight build)
     if [ -f "$API_INFO_FILE_SANDBOX" ]; then
         API_INFO_FILE="$API_INFO_FILE_SANDBOX"
+        if [ "$VERBOSE" = true ]; then
+            echo "[verbose] Found api.json at: $API_INFO_FILE (sandbox)" >&2
+        fi
         return 0
+    fi
+    if [ "$VERBOSE" = true ]; then
+        echo "[verbose] api.json not found at:" >&2
+        echo "[verbose]   - $API_INFO_FILE_NONSANDBOX" >&2
+        echo "[verbose]   - $API_INFO_FILE_SANDBOX" >&2
     fi
     return 1
 }
@@ -42,7 +61,13 @@ get_port_from_file() {
         # PID で生存確認
         local pid
         pid=$(grep -o '"pid"[[:space:]]*:[[:space:]]*[0-9]*' "$API_INFO_FILE" | grep -o '[0-9]*')
+        if [ "$VERBOSE" = true ]; then
+            echo "[verbose] Parsed from api.json: port=$port, pid=$pid" >&2
+        fi
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            if [ "$VERBOSE" = true ]; then
+                echo "[verbose] Process $pid is alive, using port $port" >&2
+            fi
             echo "$port"
             return 0
         else
@@ -55,6 +80,9 @@ get_port_from_file() {
 # ポートを決定
 if [ -n "$TT_API_PORT" ]; then
     PORT="$TT_API_PORT"
+    if [ "$VERBOSE" = true ]; then
+        echo "[verbose] Using port from TT_API_PORT environment variable: $PORT" >&2
+    fi
 elif port=$(get_port_from_file); then
     PORT="$port"
 else
