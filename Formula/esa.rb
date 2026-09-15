@@ -1,5 +1,5 @@
 class Esa < Formula
-  desc "esa (esa.io) を Chrome cookie 認証で参照する読み取り専用 CLI"
+  desc "Read-only CLI for esa.io that borrows your Chrome login session"
   homepage "https://github.com/jiikko/esa-cli"
   url "https://github.com/jiikko/esa-cli/archive/refs/tags/v0.1.3.tar.gz"
   sha256 "2bf9d0dc6ad1ed06d787a4c7cf9d0dd9189f9b82a4a899284efcb44c4f0cf3dd"
