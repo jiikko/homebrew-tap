@@ -1,8 +1,8 @@
 class Esa < Formula
   desc "Read-only CLI for esa.io that borrows your Chrome login session"
   homepage "https://github.com/jiikko/esa-cli"
-  url "https://github.com/jiikko/esa-cli/archive/refs/tags/v0.1.4.tar.gz"
-  sha256 "58cdd9f82138a9311b2a56d046f552bb91837889009c27eb454edf5936bc82be"
+  url "https://github.com/jiikko/esa-cli/archive/refs/tags/v0.1.5.tar.gz"
+  sha256 "bca01805a0ee740c8e29268d7cb9f33cf056bbdd5df30513aff2a3912dfb91a2"
   license "MIT"
   head "https://github.com/jiikko/esa-cli.git", branch: "main"
 
