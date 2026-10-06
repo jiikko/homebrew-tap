@@ -8,8 +8,8 @@
 class ChromeSlackCli < Formula
   desc "Read-only CLI for Slack that borrows your Chrome login session"
   homepage "https://github.com/jiikko/slack-cli"
-  url "https://github.com/jiikko/slack-cli/archive/refs/tags/v0.1.2.tar.gz"
-  sha256 "e39deec615034c74679087d252e623664ff21e5709aac9c0b572fbc9eaec7409"
+  url "https://github.com/jiikko/slack-cli/archive/refs/tags/v0.1.3.tar.gz"
+  sha256 "71be84d2252db92d6a8a57a66afb2e76107632e737b277293b63def670795c41"
   license "MIT"
   head "https://github.com/jiikko/slack-cli.git", branch: "main"
 
